@@ -9,6 +9,8 @@ import com.remaladag.todo.exception.TodoApiException;
 import com.remaladag.todo.repository.RoleRepository;
 import com.remaladag.todo.repository.UserRepository;
 import com.remaladag.todo.security.JwtTokenProvider;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -19,6 +21,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -30,6 +33,8 @@ public class AuthServiceImpl implements AuthService {
     private PasswordEncoder passwordEncoder;
     private AuthenticationManager authenticationManager;
     private JwtTokenProvider jwtTokenProvider;
+    private Map<String, RateLimiter> rateLimiterMap;
+    private RateLimiterRegistry rateLimiterRegistry;
     @Override
     public String register(RegisterDTO registerDTO) {
 
@@ -58,6 +63,10 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public JwtAuthResponse login(LoginDTO loginDTO) {
+        RateLimiter rateLimiter = rateLimiterMap.computeIfAbsent(loginDTO.getUsernameOrEmail(), key -> rateLimiterRegistry.rateLimiter(key));
+        if (!rateLimiter.acquirePermission()) {
+            throw new TodoApiException(HttpStatus.TOO_MANY_REQUESTS, "Too many login attempts. Please try again later.");
+        }
         Authentication authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken
                 (loginDTO.getUsernameOrEmail(), loginDTO.getPassword()));
         SecurityContextHolder.getContext().setAuthentication(authentication);
